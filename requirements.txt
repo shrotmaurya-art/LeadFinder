@@ -1,0 +1,12 @@
+playwright
+streamlit
+rapidfuzz
+requests
+beautifulsoup4
+lxml
+python-dotenv
+ollama
+pandas
+pytest
+pytest-mock
+tzdata
