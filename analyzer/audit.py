@@ -1,15 +1,7 @@
 """Audit logic that evaluates a single business record and appends an audit row."""
 
 from crm.database import Database
-
-PERSONAL_EMAIL_DOMAINS = {
-    "gmail.com",
-    "yahoo.com",
-    "yahoo.co.in",
-    "hotmail.com",
-    "outlook.com",
-    "rediffmail.com",
-}
+from utils.constants import PERSONAL_EMAIL_DOMAINS
 
 
 def run_audit(business: dict, db: Database) -> dict:
