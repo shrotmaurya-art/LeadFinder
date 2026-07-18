@@ -44,6 +44,14 @@ class Database:
                         schema_sql = f.read()
                     with conn:
                         conn.executescript(schema_sql)
+
+                # Migration: add personal_email column if missing
+                cursor.execute("PRAGMA table_info(businesses)")
+                columns = {row[1] for row in cursor.fetchall()}
+                if "personal_email" not in columns:
+                    with conn:
+                        conn.execute("ALTER TABLE businesses ADD COLUMN personal_email TEXT")
+                        logger.info("Added personal_email column to businesses table")
         except Exception as e:
             logger.error("Failed to initialize database: %s", e)
             raise
@@ -60,6 +68,7 @@ class Database:
             "phone": record.get("phone"),
             "normalized_phone": record.get("normalized_phone"),
             "email": record.get("email"),
+            "personal_email": record.get("personal_email"),
             "website": record.get("website"),
             "normalized_website": record.get("normalized_website"),
             "address": record.get("address"),
@@ -85,7 +94,7 @@ class Database:
         query = """
             INSERT INTO businesses (
                 name, category, phone, normalized_phone,
-                email, website, normalized_website, address,
+                email, personal_email, website, normalized_website, address,
                 city, google_rating, google_reviews_count,
                 instagram_url, source_url, status, opt_out,
                 lead_score, follow_up_count, first_found_date,
@@ -93,7 +102,7 @@ class Database:
                 updated_at
             ) VALUES (
                 :name, :category, :phone, :normalized_phone,
-                :email, :website, :normalized_website, :address,
+                :email, :personal_email, :website, :normalized_website, :address,
                 :city, :google_rating, :google_reviews_count,
                 :instagram_url, :source_url, :status, :opt_out,
                 :lead_score, :follow_up_count, :first_found_date,
