@@ -24,12 +24,15 @@ def run_scout(city: str, category: str, db: Database) -> dict:
     for record in raw_results:
         try:
             original_email = record.get("email")
+            original_personal_email = record.get("personal_email")
             original_insta = record.get("instagram_url")
 
             record = enrich_business(record)
 
             if original_email:
                 record["email"] = original_email
+            if original_personal_email:
+                record["personal_email"] = original_personal_email
             if original_insta:
                 record["instagram_url"] = original_insta
 
