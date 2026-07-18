@@ -4,7 +4,7 @@ PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS businesses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL, category TEXT, phone TEXT, normalized_phone TEXT,
-  email TEXT, website TEXT, normalized_website TEXT, address TEXT,
+  email TEXT, personal_email TEXT, website TEXT, normalized_website TEXT, address TEXT,
   city TEXT, google_rating REAL, google_reviews_count INTEGER,
   instagram_url TEXT, source_url TEXT,
   status TEXT NOT NULL DEFAULT 'New', opt_out INTEGER NOT NULL DEFAULT 0,
