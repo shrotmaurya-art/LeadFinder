@@ -7,7 +7,10 @@ class OptedOutError(Exception):
     """Raised when outreach is attempted for an opted-out business."""
 
 
-# minimal version, full behavior completed in T6.1/T6.3/T8.1
+class InvalidStatusTransitionError(Exception):
+    """Raised when a status transition is not allowed by STATUS_FLOW."""
+
+
 def check_opt_out_before_send(business_id: int, db: Database) -> None:
     """Raise OptedOutError when the persisted business has opted out."""
     with db._connect() as connection:
@@ -18,28 +21,33 @@ def check_opt_out_before_send(business_id: int, db: Database) -> None:
         raise OptedOutError(f"Business {business_id} has opted out of outreach.")
 
 
-# minimal version, full behavior completed in T6.1/T6.3/T8.1
-STATUS_FLOW = {
-    "New": {"Contacted"},
-    "Ready": {"Contacted"},
-    "Contacted": {"Contacted"},
-    "Replied": {"Contacted"},
-    "Meeting": set(),
-    "Client": set(),
+STATUS_FLOW: dict[str, set[str]] = {
+    "New": {"Ready to Contact", "Closed"},
+    "Ready to Contact": {"Contacted", "Closed"},
+    "Contacted": {"Replied", "Ready to Contact", "Closed"},
+    "Replied": {"Meeting Scheduled", "Closed"},
+    "Meeting Scheduled": {"Client", "Closed"},
+    "Client": {"Closed"},
+    "Closed": set(),
 }
 
 
-# minimal version, full behavior completed in T6.1/T6.3/T8.1
 def transition_status(business_id: int, new_status: str, db: Database) -> None:
-    """Apply a status transition allowed by the minimal status-flow map."""
+    """Apply a status transition allowed by STATUS_FLOW.
+
+    Raises InvalidStatusTransitionError when the target status is not a
+    valid successor of the business's current status.
+    """
     with db._connect() as connection:
         row = connection.execute(
             "SELECT status FROM businesses WHERE id = ?", (business_id,)
         ).fetchone()
     if row is None:
         raise ValueError(f"Business {business_id} was not found.")
-    if new_status not in STATUS_FLOW.get(row["status"], set()):
-        raise ValueError(
-            f"Cannot transition business {business_id} from {row['status']} to {new_status}."
+    current = row["status"]
+    allowed = STATUS_FLOW.get(current, set())
+    if new_status not in allowed:
+        raise InvalidStatusTransitionError(
+            f"Cannot move from {current} to {new_status}"
         )
     db.update_status(business_id, new_status)
