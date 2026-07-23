@@ -1,6 +1,9 @@
 """Lead sending safeguards and status transitions."""
 
+from utils.logger import get_logger
 from crm.database import Database
+
+logger = get_logger(__name__)
 
 
 class OptedOutError(Exception):
@@ -18,7 +21,21 @@ def check_opt_out_before_send(business_id: int, db: Database) -> None:
             "SELECT opt_out FROM businesses WHERE id = ?", (business_id,)
         ).fetchone()
     if row is not None and row["opt_out"]:
-        raise OptedOutError(f"Business {business_id} has opted out of outreach.")
+        raise OptedOutError(
+            f"Business {business_id} has opted out, refusing to prepare a message"
+        )
+
+
+def mark_opt_out(business_id: int, reason: str, db: Database) -> None:
+    """Set opt_out=1 on the business and transition its status to Closed."""
+    db.set_opt_out(business_id, True)
+    logger.info("Business %d opted out: %s", business_id, reason)
+    try:
+        transition_status(business_id, "Closed", db)
+    except InvalidStatusTransitionError:
+        logger.info(
+            "Business %d was already Closed; skipping status transition.", business_id
+        )
 
 
 STATUS_FLOW: dict[str, set[str]] = {

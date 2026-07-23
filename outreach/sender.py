@@ -16,8 +16,6 @@ def to_whatsapp_link_format(normalized_phone: str) -> str:
 def prepare_send(business: dict, channel: str, subject: str | None, message: str) -> dict:
     """Build a manual-send link after opt-out and daily-cap safeguards."""
     leads.check_opt_out_before_send(business["id"], db)
-    if business.get("opt_out"):
-        raise leads.OptedOutError(f"Business {business['id']} has opted out of outreach.")
 
     if followups.enforce_daily_cap(channel, db):
         return {"blocked": True, "reason": f"Daily {channel} limit reached"}
