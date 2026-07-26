@@ -160,6 +160,29 @@ def test_null_last_contacted_excluded(db, monkeypatch):
     assert len(get_followup_candidates(db)) == 0
 
 
+def test_opted_out_excluded_from_candidates(db, monkeypatch):
+    """Business with opt_out=1 is excluded from get_followup_candidates."""
+    monkeypatch.setattr(config, "COOLDOWN_DAYS", 15)
+    monkeypatch.setattr(config, "MAX_FOLLOW_UPS", 2)
+
+    today = date.fromisoformat(today_local())
+    lc_20 = (today - timedelta(days=20)).isoformat()
+
+    opted_id = db.insert_business({
+        "name": "Opted Out Biz",
+        "phone": "+911000000020",
+        "normalized_phone": "+911000000020",
+        "status": "Contacted",
+        "opt_out": 1,
+        "follow_up_count": 0,
+        "last_contacted_date": lc_20,
+    })
+
+    candidates = get_followup_candidates(db)
+    assert len(candidates) == 0
+    assert all(c["id"] != opted_id for c in candidates)
+
+
 def test_empty_result_logs(db, monkeypatch, caplog):
     """No candidates produces an info-level log message."""
     monkeypatch.setattr(config, "COOLDOWN_DAYS", 15)

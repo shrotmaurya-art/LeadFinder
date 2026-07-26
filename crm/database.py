@@ -244,49 +244,90 @@ class Database:
             cursor = conn.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_dashboard_counts(self, for_date: str) -> dict:
-        """Returns a dictionary of dashboard counts for a given date."""
-        counts = {}
+    def get_dashboard_counts(
+        self,
+        for_date: str,
+        *,
+        city: str | None = None,
+        categories: list[str] | None = None,
+    ) -> dict:
+        """Returns a dictionary of dashboard counts for a given date.
+
+        When *city* or *categories* are supplied the counts are filtered
+        accordingly (category matching is inclusive / OR).
+        """
+        biz_where = ["1=1"]
+        biz_params: list = []
+        if city:
+            biz_where.append("city = ?")
+            biz_params.append(city)
+        if categories:
+            placeholders = ", ".join("?" for _ in categories)
+            biz_where.append(f"category IN ({placeholders})")
+            biz_params.extend(categories)
+
+        biz_clause = " AND ".join(biz_where)
+
+        counts: dict = {}
         with contextlib.closing(self._connect()) as conn:
             # 1. businesses_found_today
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM businesses WHERE first_found_date = ?", (for_date,)
+                f"SELECT COUNT(*) FROM businesses WHERE first_found_date = ? AND {biz_clause}",
+                (for_date, *biz_params),
             )
             counts["businesses_found_today"] = cursor.fetchone()[0]
 
             # 2. new_leads
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM businesses WHERE status = 'New'", ()
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'New' AND {biz_clause}",
+                (*biz_params,),
             )
             counts["new_leads"] = cursor.fetchone()[0]
 
             # 3. messages_ready
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM businesses WHERE status = 'Ready'", ()
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'Ready' AND {biz_clause}",
+                (*biz_params,),
             )
             counts["messages_ready"] = cursor.fetchone()[0]
 
-            # 4. sent_today
-            cursor = conn.execute(
-                "SELECT COUNT(*) FROM contact_log WHERE substr(sent_at, 1, 10) = ?", (for_date,)
-            )
+            # 4. sent_today (JOIN needed when city/category filters apply)
+            if city or categories:
+                cursor = conn.execute(
+                    f"""
+                        SELECT COUNT(*)
+                          FROM contact_log cl
+                          JOIN businesses b ON b.id = cl.business_id
+                         WHERE substr(cl.sent_at, 1, 10) = ?
+                           AND {biz_clause}
+                    """,
+                    (for_date, *biz_params),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM contact_log WHERE substr(sent_at, 1, 10) = ?",
+                    (for_date,),
+                )
             counts["sent_today"] = cursor.fetchone()[0]
 
             # 5. replies
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM businesses WHERE status = 'Replied'", ()
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'Replied' AND {biz_clause}",
+                (*biz_params,),
             )
             counts["replies"] = cursor.fetchone()[0]
 
             # 6. meetings
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM businesses WHERE status = 'Meeting'", ()
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'Meeting' AND {biz_clause}",
+                (*biz_params,),
             )
             counts["meetings"] = cursor.fetchone()[0]
 
             # 7. clients
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM businesses WHERE status = 'Client'", ()
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'Client' AND {biz_clause}",
+                (*biz_params,),
             )
             counts["clients"] = cursor.fetchone()[0]
 
