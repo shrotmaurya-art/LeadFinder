@@ -27,7 +27,7 @@ On Linux, use `playwright install --with-deps chromium` instead — the
 Windows the plain command above is sufficient.
 
 ### Configure environment
-Copy `.env.example` to `.env` and set your target city and categories:
+Copy `.env.example` to `.env` and set your target cities and categories:
 ```bash
 cp .env.example .env
 ```
@@ -35,24 +35,53 @@ Key variables (see `config.py` for all options):
 
 | Variable               | Default         | Description                              |
 |------------------------|-----------------|------------------------------------------|
-| `CITY`                 | `""`            | City to scout (e.g. `Virar`)             |
+| `CITIES`               | `""`            | Comma-separated cities to scout (e.g. `Virar,Vasai,Nalasopara`) |
 | `CATEGORIES`           | `""`            | Comma-separated categories (e.g. `Cafes, Gyms`) |
 | `OLLAMA_MODEL`         | `llama3.1:8b`   | Model for draft generation               |
 | `LEAD_SCORE_THRESHOLD` | `40`            | Minimum score to auto-draft a lead       |
 | `EMAIL_DAILY_CAP`      | `30`            | Max email sends per day                  |
+| `EMAIL_LINK_STYLE`     | `mailto`        | `mailto` (OS default mail app) or `gmail_web` (Gmail web compose) |
 | `WHATSAPP_DAILY_CAP`   | `30`            | Max WhatsApp sends per day               |
 | `DATA_SOURCE`          | `playwright`    | `playwright` or `google_places`          |
+| `NOTIFY_EMAIL`         | `""`            | Email address for operator notifications |
+| `SMTP_HOST`            | `smtp.gmail.com`| SMTP server host                         |
+| `SMTP_PORT`            | `587`           | SMTP server port                         |
+| `SMTP_USER`            | `""`            | SMTP username (usually your email)       |
+| `SMTP_PASSWORD`        | `""`            | SMTP password (use an App Password)      |
+| `ENABLE_EMAIL_NOTIFY`  | `true`          | Send email notifications after daily run |
+| `ENABLE_DESKTOP_NOTIFY`| `true`          | Send desktop notifications after daily run |
+
+> **Note on `EMAIL_LINK_STYLE`:** When set to `gmail_web`, you must already
+> be logged into Gmail in your default browser. The link opens a new browser
+> tab with Gmail's compose window rather than launching a desktop mail app.
+> This bypasses any OS default mail client settings.
+
+### Email notification (Gmail App Password)
+
+If you use Gmail (or most other email providers) for `SMTP_USER` / `SMTP_PASSWORD`,
+you **cannot** use your normal account password. Gmail requires a 16-character
+**App Password** instead. To generate one:
+
+1. Enable **2-Step Verification** on your Google account
+   (https://myaccount.google.com/security).
+2. Go to **App passwords**
+   (https://myaccount.google.com/apppasswords).
+3. Select **Mail** and your device, then click **Generate**.
+4. Copy the 16-character password into `SMTP_PASSWORD` in your `.env` file.
+
+Other providers (Outlook, Yahoo, etc.) have similar App Password or
+less-secure-apps requirements — consult their documentation.
 
 ## Running
 
 ### Full daily pipeline
 ```bash
-python scripts/run_daily.py --city Virar --categories Cafes,Gyms
+python scripts/run_daily.py
 ```
-This runs the complete workflow: scout Google Maps for new leads, audit each
-business's online presence, score them, generate AI-drafted email and WhatsApp
-messages, and transition qualifying leads to "Ready to Contact". Duplicates
-are detected automatically.
+This runs the complete workflow: scout Google Maps for new leads across all
+configured cities and categories, audit each business's online presence, score
+them, generate AI-drafted email and WhatsApp messages, and transition qualifying
+leads to "Ready to Contact". Duplicates are detected automatically.
 
 ### Dashboard
 ```bash
@@ -108,9 +137,6 @@ scheduled tasks, and production-adjacent considerations (backups, monitoring).
 
 ## Known Limitations / Future Versions
 
-- **Multi-city scouts.** The current scouting pipeline targets a single city
-  per run. A future version will support multiple cities with configurable
-  schedules.
 - **Reply classification.** Inbound email/WhatsApp replies are not yet
   classified. Planned: auto-detect "STOP", meeting requests, questions, and
   update the CRM status accordingly.

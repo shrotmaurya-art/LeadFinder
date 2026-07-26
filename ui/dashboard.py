@@ -11,6 +11,7 @@
 import pandas as pd
 import streamlit as st
 
+import config
 from analyzer.recommendations import recommend_services
 from crm.database import Database
 from crm.leads import OptedOutError, STATUS_FLOW, transition_status
@@ -39,31 +40,28 @@ def main():
 
     @st.cache_data(ttl=30)
     def _fetch_filter_options() -> tuple[list[str], list[str]]:
-        leads = db.get_leads()
-        cities = sorted({r["city"] for r in leads if r.get("city")})
-        categories = sorted({r["category"] for r in leads if r.get("category")})
-        return cities, categories
+        return sorted(config.CITIES), sorted(config.CATEGORIES)
 
     cities, categories = _fetch_filter_options()
 
     with st.sidebar:
         st.header("Filters")
-        city_selection = st.selectbox("City", ["all"] + cities, index=0)
+        city_selection = st.multiselect("City", ["all"] + cities, default=["all"])
         category_selection = st.multiselect("Category", ["all"] + categories, default=["all"])
 
     # Resolve filter values: "all" → None (no filter)
-    city_filter = None if city_selection == "all" else city_selection
+    city_filter = None if "all" in city_selection else city_selection
     cat_filter = None if "all" in category_selection else category_selection
 
     # ── Data fetching (cached) ───────────────────────────────────────
 
     @st.cache_data(ttl=30)
-    def _fetch_counts(for_date: str, city: str | None, cats: tuple[str, ...] | None) -> dict:
+    def _fetch_counts(for_date: str, city: str | list[str] | None, cats: tuple[str, ...] | None) -> dict:
         cats_list = list(cats) if cats else None
         return db.get_dashboard_counts(for_date, city=city, categories=cats_list)
 
     for_date = today_local()
-    counts = _fetch_counts(for_date, city_filter, tuple(cat_filter) if cat_filter else None)
+    counts = _fetch_counts(for_date, tuple(city_filter) if city_filter else None, tuple(cat_filter) if cat_filter else None)
 
     # ── Metric cards ─────────────────────────────────────────────────
 
@@ -177,26 +175,47 @@ def main():
                         edited_subject = st.text_input("Subject", key=email_subj_key)
                         edited_email_body = st.text_area("Body", key=email_body_key, height=220)
 
+                        biz_email = business.get("email")
+                        manual_email_key = f"manual_email_{biz_id}"
+                        save_email_key = f"save_email_{biz_id}"
+
+                        if not biz_email:
+                            manual_email = st.text_input(
+                                "No business email on file — add one manually to enable Send Email",
+                                key=manual_email_key,
+                            )
+                            save_to_lead = st.checkbox("Save this email to this lead", key=save_email_key)
+                        else:
+                            manual_email = ""
+                            save_to_lead = False
+
                         btn_col1, btn_col2 = st.columns([1, 1])
                         with btn_col1:
                             if st.button("Send Email", key=f"send_email_{biz_id}"):
-                                try:
-                                    res = sender.prepare_send(business, "email", edited_subject, edited_email_body)
-                                except OptedOutError as e:
-                                    res = {"blocked": True, "reason": str(e)}
-                                st.session_state[f"email_res_{biz_id}"] = res
-                                if not res.get("blocked"):
-                                    st.session_state[f"email_shown_{biz_id}"] = True
+                                effective_email = biz_email or manual_email
+                                if not effective_email:
+                                    st.warning("No email available — try WhatsApp instead")
+                                else:
+                                    send_business = business if biz_email else {**business, "email": manual_email}
+                                    try:
+                                        res = sender.prepare_send(send_business, "email", edited_subject, edited_email_body)
+                                    except OptedOutError as e:
+                                        res = {"blocked": True, "reason": str(e)}
+                                    st.session_state[f"email_res_{biz_id}"] = res
+                                    if not res.get("blocked"):
+                                        st.session_state[f"email_shown_{biz_id}"] = True
+                                    if save_to_lead and manual_email:
+                                        db.update_email(biz_id, manual_email)
 
                         email_res = st.session_state.get(f"email_res_{biz_id}")
                         if email_res:
                             if email_res.get("blocked"):
                                 st.warning(email_res.get("reason", "Send blocked"))
                             else:
+                                dest_email = (biz_email or manual_email) or "N/A"
                                 if email_res.get("link"):
                                     st.link_button("Open Email Client", email_res["link"])
                                 if email_res.get("fallback") == "copy":
-                                    dest_email = business.get("email") or "N/A"
                                     st.write(f"**Recipient Email:** `{dest_email}`")
                                     st.code(edited_email_body)
                                     st.info("Copy the recipient email and message body above to send manually in your email program.")

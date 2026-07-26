@@ -145,6 +145,13 @@ class Database:
             with conn:
                 conn.execute(query, (new_status, now_local_iso(), business_id))
 
+    def update_email(self, business_id: int, email: str) -> None:
+        """Updates the email column and updated_at for a business."""
+        query = "UPDATE businesses SET email = ?, updated_at = ? WHERE id = ?"
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(query, (email, now_local_iso(), business_id))
+
     def set_opt_out(self, business_id: int, opt_out: bool) -> None:
         """Sets opt_out status (1 or 0) and updated_at for a business."""
         val = 1 if opt_out else 0
@@ -224,7 +231,7 @@ class Database:
             with conn:
                 conn.execute(query, (score, now_local_iso(), business_id))
 
-    def get_leads(self, status: str | None = None, city: str | None = None, order_by_score: bool = False) -> list[dict]:
+    def get_leads(self, status: str | None = None, city: str | list[str] | None = None, order_by_score: bool = False) -> list[dict]:
         """Gets a list of businesses matching the filters, optionally ordered by lead_score descending."""
         sql = "SELECT * FROM businesses"
         conditions = []
@@ -232,7 +239,11 @@ class Database:
         if status is not None:
             conditions.append("status = ?")
             params.append(status)
-        if city is not None:
+        if isinstance(city, list):
+            placeholders = ", ".join("?" for _ in city)
+            conditions.append(f"city IN ({placeholders})")
+            params.extend(city)
+        elif city is not None:
             conditions.append("city = ?")
             params.append(city)
         if conditions:
@@ -248,7 +259,7 @@ class Database:
         self,
         for_date: str,
         *,
-        city: str | None = None,
+        city: str | list[str] | None = None,
         categories: list[str] | None = None,
     ) -> dict:
         """Returns a dictionary of dashboard counts for a given date.
@@ -258,7 +269,11 @@ class Database:
         """
         biz_where = ["1=1"]
         biz_params: list = []
-        if city:
+        if isinstance(city, list):
+            placeholders = ", ".join("?" for _ in city)
+            biz_where.append(f"city IN ({placeholders})")
+            biz_params.extend(city)
+        elif city:
             biz_where.append("city = ?")
             biz_params.append(city)
         if categories:

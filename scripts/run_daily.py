@@ -16,6 +16,7 @@ from outreach import email_generator, whatsapp_generator
 from scout import pipeline
 from scripts import backup_db, preflight_check
 from utils.logger import get_logger
+from utils.notify import send_desktop_notification, send_email_notification
 from utils.timeutil import today_local
 
 logger = get_logger(__name__)
@@ -36,16 +37,33 @@ def main() -> int:
     # 2. Backup database before any writes
     backup_db.run(db.db_path)
 
-    # 3. Scout configured categories
+    # 3. Scout configured categories across all cities
     total_found = 0
     total_new = 0
     total_duplicates = 0
 
-    for category in config.CATEGORIES:
-        res = pipeline.run_scout(config.CITY, category, db)
-        total_found += res.get("found", 0)
-        total_new += res.get("new", 0)
-        total_duplicates += res.get("duplicates", 0)
+    for city in config.CITIES:
+        city_found = 0
+        city_new = 0
+        city_duplicates = 0
+
+        for category in config.CATEGORIES:
+            res = pipeline.run_scout(city, category, db)
+            city_found += res.get("found", 0)
+            city_new += res.get("new", 0)
+            city_duplicates += res.get("duplicates", 0)
+
+        total_found += city_found
+        total_new += city_new
+        total_duplicates += city_duplicates
+
+        logger.info(
+            "City %s complete. Found: %d, New: %d, Duplicates: %d",
+            city,
+            city_found,
+            city_new,
+            city_duplicates,
+        )
 
     logger.info(
         "Scout complete. Found: %d, New: %d, Duplicates: %d",
@@ -101,6 +119,18 @@ def main() -> int:
     print(f"\nLeadFinder Daily Summary ({date_label}):")
     for label, value in card_defs:
         print(f"  {label}: {value}")
+
+    summary = {
+        "found": total_found,
+        "new": total_new,
+        "duplicates": total_duplicates,
+        "messages_ready": counts["messages_ready"],
+    }
+
+    if config.ENABLE_EMAIL_NOTIFY:
+        send_email_notification(summary)
+    if config.ENABLE_DESKTOP_NOTIFY:
+        send_desktop_notification(summary)
 
     return 0
 
