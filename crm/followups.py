@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 
 def enforce_daily_cap(channel: str, db: Database) -> bool:
-    """Return True when today's channel-specific contact cap has been reached."""
+    """Return True when it's OK to send another message on *channel* today."""
     caps = {
         "email": config.EMAIL_DAILY_CAP,
         "whatsapp": config.WHATSAPP_DAILY_CAP,
@@ -30,7 +30,7 @@ def enforce_daily_cap(channel: str, db: Database) -> bool:
             """,
             (channel, today_local()),
         ).fetchone()
-    return row["sent_count"] >= caps[channel]
+    return row["sent_count"] < caps[channel]
 
 
 def get_followup_candidates(db: Database) -> list[dict]:
