@@ -1,5 +1,6 @@
 from urllib.parse import quote
 
+import config
 from crm import followups, leads
 from crm.database import Database
 
@@ -24,7 +25,15 @@ def prepare_send(business: dict, channel: str, subject: str | None, message: str
         email = business.get("email")
         if not email:
             return {"blocked": True, "reason": "No business email on file"}
-        link = f"mailto:{email}?subject={quote(subject or '')}&body={quote(message)}"
+        if config.EMAIL_LINK_STYLE == "gmail_web":
+            link = (
+                "https://mail.google.com/mail/?view=cm&fs=1"
+                f"&to={quote(email)}"
+                f"&su={quote(subject or '')}"
+                f"&body={quote(message)}"
+            )
+        else:
+            link = f"mailto:{email}?subject={quote(subject or '')}&body={quote(message)}"
     elif channel == "whatsapp":
         phone = business.get("normalized_phone")
         if not phone:
