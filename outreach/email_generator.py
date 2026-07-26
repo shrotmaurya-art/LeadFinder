@@ -7,6 +7,7 @@ Combines a style-varied template skeleton with LLM generation to produce
 
 from __future__ import annotations
 
+import config
 from outreach.llm import generate as llm_generate, OllamaUnavailableError
 from utils.logger import get_logger
 
@@ -115,18 +116,40 @@ def generate_email(
         body_sys = _TEMPLATES[template_idx]
         log.info("biz=%s using template index %d", business["id"], template_idx)
 
+    # --- build pitch hint (config-driven, never hardcoded) ----------------
+    _portfolio_hint = (
+        f"  Include {config.PORTFOLIO_URL} as a plain link if set."
+        if config.PORTFOLIO_URL
+        else ""
+    )
+    pitch_hint = (
+        f"Mention naturally, in ONE sentence near the end, that "
+        f"{config.FREELANCER_NAME} is an {config.FREELANCER_PITCH}, with "
+        f"pricing starting at {config.STARTING_PRICE}.  Do NOT make this "
+        f"sound like a template or an ad — it should read like a real person "
+        f"casually mentioning their own service, not a pitch deck."
+        f"{_portfolio_hint}"
+    )
+
     # --- build user prompt ------------------------------------------------
     if follow_up_number >= 1:
+        price_reminder = ""
+        if recommendations:
+            price_reminder = (
+                f"  You may briefly remind them that pricing starts at "
+                f"{config.STARTING_PRICE} — one short clause, not a pitch."
+            )
         user_prompt = (
             f"Business: {name} in {city}.\n"
             f"This is follow-up #{follow_up_number}.  "
-            f"The original email was about: {biggest_gap}."
+            f"The original email was about: {biggest_gap}.{price_reminder}"
         )
     else:
         user_prompt = (
             f"Business: {name} in {city}.\n"
             f"Biggest gap: {biggest_gap}.\n"
             f"The business already has: {has_summary}.\n"
+            f"{pitch_hint}\n"
             "Write the email body now."
         )
 

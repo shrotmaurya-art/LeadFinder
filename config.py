@@ -20,3 +20,21 @@ APP_TIMEZONE: str = os.getenv("APP_TIMEZONE", "Asia/Kolkata")
 DATA_SOURCE: str = os.getenv("DATA_SOURCE", "playwright")
 GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")
 INCLUDE_RATINGS_VIA_API: bool = _bool(os.getenv("INCLUDE_RATINGS_VIA_API", "false"))
+
+# Freelancer profile (used in outreach messages)
+FREELANCER_NAME: str = os.getenv("FREELANCER_NAME", "")
+FREELANCER_PITCH: str = os.getenv(
+    "FREELANCER_PITCH",
+    "independent freelance web developer — modern, fast, affordable websites",
+)
+STARTING_PRICE: str = os.getenv("STARTING_PRICE", "Rs. 3,999")
+PORTFOLIO_URL: str = os.getenv("PORTFOLIO_URL", "")
+
+# Notification settings
+NOTIFY_EMAIL: str = os.getenv("NOTIFY_EMAIL", "")
+SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER: str = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+ENABLE_EMAIL_NOTIFY: bool = _bool(os.getenv("ENABLE_EMAIL_NOTIFY", "true"))
+ENABLE_DESKTOP_NOTIFY: bool = _bool(os.getenv("ENABLE_DESKTOP_NOTIFY", "true"))

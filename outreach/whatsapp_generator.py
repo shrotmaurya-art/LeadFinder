@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 
+import config
 from outreach.llm import generate as llm_generate, OllamaUnavailableError
 from utils.logger import get_logger
 
@@ -112,18 +113,32 @@ def generate_whatsapp(
         body_sys = _TEMPLATES[template_idx]
         log.info("biz=%s using WA template index %d", business["id"], template_idx)
 
+    # --- build pitch hint (config-driven, never hardcoded) ----------------
+    pitch_hint = (
+        f"Mention your name ({config.FREELANCER_NAME}) and that pricing "
+        f"starts at {config.STARTING_PRICE} — one short clause, not a pitch.  "
+        f"Do NOT include a portfolio link on WhatsApp."
+    )
+
     # --- build user prompt ------------------------------------------------
     if follow_up_number >= 1:
+        price_reminder = ""
+        if recommendations:
+            price_reminder = (
+                f"  You may briefly remind them that pricing starts at "
+                f"{config.STARTING_PRICE} — one short clause, not a pitch."
+            )
         user_prompt = (
             f"Business: {name}.\n"
             f"This is follow-up #{follow_up_number}.  "
-            f"The original message was about: {biggest_gap}."
+            f"The original message was about: {biggest_gap}.{price_reminder}"
         )
     else:
         user_prompt = (
             f"Business: {name}.\n"
             f"Biggest gap: {biggest_gap}.\n"
             f"The business already has: {has_summary}.\n"
+            f"{pitch_hint}\n"
             "Write the WhatsApp message now."
         )
 
