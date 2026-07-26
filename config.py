@@ -8,12 +8,13 @@ def _bool(value: str | None) -> bool:
         return False
     return value.strip().lower() in ("true", "1", "yes")
 
-CITY: str = os.getenv("CITY", "")
+CITIES: list[str] = [c.strip() for c in os.getenv("CITIES", "").split(",") if c.strip()]
 CATEGORIES: list[str] = [c.strip() for c in os.getenv("CATEGORIES", "").split(",") if c.strip()]
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 COOLDOWN_DAYS: int = int(os.getenv("COOLDOWN_DAYS", "15"))
 MAX_FOLLOW_UPS: int = int(os.getenv("MAX_FOLLOW_UPS", "2"))
 EMAIL_DAILY_CAP: int = int(os.getenv("EMAIL_DAILY_CAP", "30"))
+EMAIL_LINK_STYLE: str = os.getenv("EMAIL_LINK_STYLE", "mailto")
 WHATSAPP_DAILY_CAP: int = int(os.getenv("WHATSAPP_DAILY_CAP", "30"))
 LEAD_SCORE_THRESHOLD: int = int(os.getenv("LEAD_SCORE_THRESHOLD", "40"))
 APP_TIMEZONE: str = os.getenv("APP_TIMEZONE", "Asia/Kolkata")
