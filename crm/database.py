@@ -52,6 +52,13 @@ class Database:
                     with conn:
                         conn.execute("ALTER TABLE businesses ADD COLUMN personal_email TEXT")
                         logger.info("Added personal_email column to businesses table")
+
+                # Migration: add draft columns if missing
+                for col in ("draft_email_subject", "draft_email_body", "draft_whatsapp_message"):
+                    if col not in columns:
+                        with conn:
+                            conn.execute(f"ALTER TABLE businesses ADD COLUMN {col} TEXT")
+                            logger.info("Added %s column to businesses table", col)
         except Exception as e:
             logger.error("Failed to initialize database: %s", e)
             raise
@@ -347,3 +354,56 @@ class Database:
             counts["clients"] = cursor.fetchone()[0]
 
         return counts
+
+    def save_draft(
+        self,
+        business_id: int,
+        email_subject: str | None,
+        email_body: str | None,
+        whatsapp_message: str | None,
+    ) -> None:
+        """Persists the currently-active draft text for a business awaiting send."""
+        query = """
+            UPDATE businesses
+               SET draft_email_subject = ?,
+                   draft_email_body = ?,
+                   draft_whatsapp_message = ?,
+                   updated_at = ?
+             WHERE id = ?
+        """
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(query, (email_subject, email_body, whatsapp_message, now_local_iso(), business_id))
+
+    def get_draft(self, business_id: int) -> dict | None:
+        """Returns the saved draft dict for a business, or None if no draft exists."""
+        query = """
+            SELECT draft_email_subject, draft_email_body, draft_whatsapp_message
+              FROM businesses
+             WHERE id = ?
+        """
+        with contextlib.closing(self._connect()) as conn:
+            cursor = conn.execute(query, (business_id,))
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            d = dict(row)
+            if d["draft_email_subject"] is None and d["draft_email_body"] is None and d["draft_whatsapp_message"] is None:
+                return None
+            return d
+
+    def clear_draft(self, business_id: int, channel: str) -> None:
+        """Clears the draft columns for a specific channel back to NULL after send.
+
+        channel must be 'email' or 'whatsapp'.
+        """
+        if channel == "email":
+            col_clause = "draft_email_subject = NULL, draft_email_body = NULL"
+        elif channel == "whatsapp":
+            col_clause = "draft_whatsapp_message = NULL"
+        else:
+            raise ValueError(f"Unsupported channel for clear_draft: {channel}")
+        query = f"UPDATE businesses SET {col_clause}, updated_at = ? WHERE id = ?"
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(query, (now_local_iso(), business_id))

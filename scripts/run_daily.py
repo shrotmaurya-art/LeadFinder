@@ -81,11 +81,17 @@ def main() -> int:
         recs = recommend_services(audit)
 
         if score >= config.LEAD_SCORE_THRESHOLD:
-            email_generator.generate_email(
+            email_draft = email_generator.generate_email(
                 biz, audit, recs, follow_up_number=0
             )
-            whatsapp_generator.generate_whatsapp(
+            wa_draft = whatsapp_generator.generate_whatsapp(
                 biz, audit, recs, follow_up_number=0
+            )
+            db.save_draft(
+                biz["id"],
+                email_draft.get("subject"),
+                email_draft.get("body"),
+                wa_draft,
             )
             transition_status(biz["id"], "Ready to Contact", db)
 
