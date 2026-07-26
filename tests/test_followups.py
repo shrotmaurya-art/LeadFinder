@@ -15,7 +15,13 @@ def db(tmp_path):
 
 
 class TestEnforceDailyCap:
-    def test_under_cap_returns_false(self, db):
+    def test_under_cap_returns_true(self, db):
+        assert enforce_daily_cap("email", db) is True
+
+    def test_at_cap_returns_false(self, db):
+        business_id = db.insert_business({"name": "Cap Test", "city": "X"})
+        for _ in range(config.EMAIL_DAILY_CAP):
+            db.log_contact(business_id, "email", "msg", 0, "me")
         assert enforce_daily_cap("email", db) is False
 
     def test_unsupported_channel_raises(self, db):

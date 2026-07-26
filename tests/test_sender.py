@@ -1,5 +1,6 @@
 import pytest
 
+import config
 from crm.database import Database
 from crm.leads import OptedOutError
 from outreach import sender
@@ -53,3 +54,18 @@ def test_prepare_send_blocks_missing_email(sender_db):
     )
 
     assert result == {"blocked": True, "reason": "No business email on file"}
+
+
+def test_prepare_send_blocks_when_email_cap_reached(sender_db):
+    business_id = sender_db.insert_business({"name": "Capped", "opt_out": 0, "email": "a@b.com"})
+    for _ in range(config.EMAIL_DAILY_CAP):
+        sender_db.log_contact(business_id, "email", "msg", 0, "me")
+
+    result = sender.prepare_send(
+        {"id": business_id, "opt_out": 0, "email": "a@b.com"},
+        "email",
+        "sub",
+        "does-not-matter",
+    )
+
+    assert result == {"blocked": True, "reason": "Daily email limit reached"}

@@ -17,7 +17,7 @@ def prepare_send(business: dict, channel: str, subject: str | None, message: str
     """Build a manual-send link after opt-out and daily-cap safeguards."""
     leads.check_opt_out_before_send(business["id"], db)
 
-    if followups.enforce_daily_cap(channel, db):
+    if not followups.enforce_daily_cap(channel, db):
         return {"blocked": True, "reason": f"Daily {channel} limit reached"}
 
     if channel == "email":
