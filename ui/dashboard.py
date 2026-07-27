@@ -1,13 +1,3 @@
-# TODO: T10.1 preflight_check not yet implemented.
-# When scripts/preflight_check.py is built, uncomment and enable the block below:
-#
-#   from scripts.preflight_check import run as preflight_run
-#   import streamlit as st
-#   ok, msg = preflight_run()
-#   if not ok:
-#       st.error(f"Environment check failed: {msg}")
-#       st.stop()
-
 from datetime import date, timedelta
 
 import streamlit as st
@@ -17,7 +7,10 @@ from analyzer.recommendations import recommend_services
 from crm.database import Database
 from crm.leads import OptedOutError, STATUS_FLOW, transition_status
 from outreach import email_generator, sender, whatsapp_generator
+from outreach.sender import MissingEmailError
 from utils.timeutil import today_local
+from scripts.preflight_check import run as preflight_run
+from scripts.auto_scout_runner import run_in_background
 
 CUSTOM_CSS = """
 <style>
@@ -137,9 +130,22 @@ def main():
     st.set_page_config(page_title="LeadFinderAI", page_icon="\U0001F4CD", layout="wide")
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    # ── Sidebar filters ──────────────────────────────────────────────
+    # ── Preflight check ──────────────────────────────────────────────
+    ok, failures = preflight_run()
+    if not ok:
+        st.error("Environment check failed: " + "; ".join(failures))
+        st.stop()
 
+    # ── Database init ────────────────────────────────────────────────
     db = Database()
+    db.init_db()
+
+    # ── Background scout (once per Streamlit session) ────────────────
+    if "_scout_launch_key" not in st.session_state:
+        st.session_state["_scout_launch_key"] = True
+        run_in_background(db)
+
+    # ── Sidebar filters ──────────────────────────────────────────────
 
     @st.cache_data(ttl=30)
     def _fetch_filter_options() -> tuple[list[str], list[str]]:
@@ -179,6 +185,17 @@ def main():
         st.metric("Found", counts["businesses_found_today"])
         st.metric("New Leads", counts["new_leads"])
         st.metric("Messages Ready", counts["messages_ready"])
+
+        city_counts = db.get_city_lead_counts()
+        if city_counts:
+            st.divider()
+            st.subheader("Leads by City")
+            for row in city_counts:
+                st.text(f"  {row['city'] or 'Unknown'}: {row['cnt']}")
+        
+        # Background scout status indicator
+        if db.get_last_scout_date() != today_local():
+            st.info("🔄 Finding businesses in the background — refresh in a few minutes for new leads.")
 
     # ── Metric cards with header and deltas ──────────────────────────
 
@@ -263,17 +280,19 @@ def main():
 
                     if saved_draft is not None:
                         # Restore persisted draft into session state widgets
-                        st.session_state[email_subj_key] = saved_draft["draft_email_subject"] or ""
-                        st.session_state[email_body_key] = saved_draft["draft_email_body"] or ""
+                        if lead.get("email"):
+                            st.session_state[email_subj_key] = saved_draft["draft_email_subject"] or ""
+                            st.session_state[email_body_key] = saved_draft["draft_email_body"] or ""
                         st.session_state[wa_body_key] = saved_draft["draft_whatsapp_message"] or ""
                     else:
                         # No persisted draft — generate once and save immediately
-                        if email_subj_key not in st.session_state or email_body_key not in st.session_state:
-                            email_draft = email_generator.generate_email(
-                                lead, audit or {}, recs, follow_up_number=follow_up_count
-                            )
-                            st.session_state[email_subj_key] = email_draft.get("subject", "")
-                            st.session_state[email_body_key] = email_draft.get("body", "")
+                        if lead.get("email"):
+                            if email_subj_key not in st.session_state or email_body_key not in st.session_state:
+                                email_draft = email_generator.generate_email(
+                                    lead, audit or {}, recs, follow_up_number=follow_up_count
+                                )
+                                st.session_state[email_subj_key] = email_draft.get("subject", "")
+                                st.session_state[email_body_key] = email_draft.get("body", "")
 
                         if wa_body_key not in st.session_state:
                             wa_draft = whatsapp_generator.generate_whatsapp(
@@ -281,97 +300,82 @@ def main():
                             )
                             st.session_state[wa_body_key] = wa_draft
 
-                        db.save_draft(
-                            biz_id,
-                            st.session_state.get(email_subj_key, ""),
-                            st.session_state.get(email_body_key, ""),
-                            st.session_state.get(wa_body_key, ""),
-                        )
-
                     # (d) Email and WhatsApp side-by-side, each fully self-contained
-                    col_email, col_wa = st.columns(2)
+                    has_email = bool(lead.get("email"))
+                    if has_email:
+                        col_email, col_wa = st.columns(2)
+                    else:
+                        col_wa = st.container()
 
                     # ── Email channel ─────────────────────────────────
-                    with col_email:
-                        st.markdown("### Email Outreach")
-                        edited_subject = st.text_input("Subject", key=email_subj_key)
-                        edited_email_body = st.text_area("Body", key=email_body_key, height=220)
+                    if has_email:
+                        with col_email:
+                            st.markdown("### Email Outreach")
+                            edited_subject = st.text_input("Subject", key=email_subj_key)
+                            edited_email_body = st.text_area("Body", key=email_body_key, height=220)
 
-                        # Persist any edits back to DB
-                        db.save_draft(biz_id, edited_subject, edited_email_body, None)
+                            # Persist any edits back to DB
+                            db.save_draft(biz_id, edited_subject, edited_email_body, None)
 
-                        email_sent_key = f"email_sent_{biz_id}"
-                        if st.session_state.get(email_sent_key):
-                            st.markdown(
-                                '<span class="sent-confirm">\u2713 Sent via Email</span>',
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            # Regenerate button
-                            if st.button("\U0001f504 Regenerate Email", key=f"regen_email_{biz_id}"):
-                                new_draft = email_generator.generate_email(
-                                    lead, audit or {}, recs, follow_up_number=follow_up_count
+                            email_sent_key = f"email_sent_{biz_id}"
+                            if st.session_state.get(email_sent_key):
+                                st.markdown(
+                                    '<span class="sent-confirm">\u2713 Sent via Email</span>',
+                                    unsafe_allow_html=True,
                                 )
-                                st.session_state[email_subj_key] = new_draft.get("subject", "")
-                                st.session_state[email_body_key] = new_draft.get("body", "")
-                                db.save_draft(
-                                    biz_id,
-                                    new_draft.get("subject", ""),
-                                    new_draft.get("body", ""),
-                                    None,
-                                )
-                                st.rerun()
-
-                            biz_email = lead.get("email")
-                            manual_email_key = f"manual_email_{biz_id}"
-                            save_email_key = f"save_email_{biz_id}"
-
-                            if not biz_email:
-                                manual_email = st.text_input(
-                                    "No business email on file \u2014 add one manually to enable Send Email",
-                                    key=manual_email_key,
-                                )
-                                save_to_lead = st.checkbox("Save this email to this lead", key=save_email_key)
                             else:
-                                manual_email = ""
-                                save_to_lead = False
+                                # Regenerate button
+                                if st.button("\U0001f504 Regenerate Email", key=f"regen_email_{biz_id}"):
+                                    new_draft = email_generator.generate_email(
+                                        lead, audit or {}, recs, follow_up_number=follow_up_count
+                                    )
+                                    db.save_draft(
+                                        biz_id,
+                                        new_draft.get("subject", ""),
+                                        new_draft.get("body", ""),
+                                        None,
+                                    )
+                                    st.session_state.pop(email_subj_key, None)
+                                    st.session_state.pop(email_body_key, None)
+                                    st.rerun()
 
-                            if st.button("Send Email", key=f"send_email_{biz_id}"):
-                                effective_email = biz_email or manual_email
-                                if not effective_email:
-                                    st.warning("No email available \u2014 try WhatsApp instead")
-                                else:
-                                    send_business = lead if biz_email else {**lead, "email": manual_email}
+                                biz_email = lead.get("email")
+
+                                if st.button("Send Email", key=f"send_email_{biz_id}"):
+                                    send_business = lead
                                     try:
                                         res = sender.prepare_send(send_business, "email", edited_subject, edited_email_body)
                                     except OptedOutError as e:
                                         res = {"blocked": True, "reason": str(e)}
+                                    except MissingEmailError as e:
+                                        res = {"blocked": True, "reason": str(e)}
                                     st.session_state[f"email_res_{biz_id}"] = res
                                     if not res.get("blocked"):
                                         st.session_state[f"email_shown_{biz_id}"] = True
-                                    if save_to_lead and manual_email:
-                                        db.update_email(biz_id, manual_email)
 
-                            email_res = st.session_state.get(f"email_res_{biz_id}")
-                            if email_res:
-                                if email_res.get("blocked"):
-                                    st.warning(email_res.get("reason", "Send blocked"))
-                                else:
-                                    dest_email = (biz_email or manual_email) or "N/A"
-                                    if email_res.get("link"):
-                                        st.link_button("Open Email Client", email_res["link"])
-                                    if email_res.get("fallback") == "copy":
-                                        st.write(f"**Recipient Email:** `{dest_email}`")
-                                        st.code(edited_email_body)
-                                        st.info("Copy the recipient email and message body above to send manually in your email program.")
+                                email_res = st.session_state.get(f"email_res_{biz_id}")
+                                if email_res:
+                                    if email_res.get("blocked"):
+                                        st.warning(email_res.get("reason", "Send blocked"))
+                                    else:
+                                        dest_email = biz_email or "N/A"
+                                        if email_res.get("link"):
+                                            st.link_button("Open Email Client", email_res["link"])
+                                        if email_res.get("fallback") == "copy":
+                                            st.write(f"**Recipient Email:** `{dest_email}`")
+                                            st.code(edited_email_body)
+                                            st.info("Copy the recipient email and message body above to send manually in your email program.")
 
-                            email_shown = st.session_state.get(f"email_shown_{biz_id}", False)
-                            if st.button("Mark as Sent", key=f"mark_email_sent_{biz_id}", disabled=not email_shown):
-                                sender.confirm_sent(biz_id, "email", edited_email_body, follow_up_count)
-                                db.clear_draft(biz_id, "email")
-                                st.session_state[email_sent_key] = True
-                                st.cache_data.clear()
-                                st.rerun()
+                                email_shown = st.session_state.get(f"email_shown_{biz_id}", False)
+                                if st.button("Mark as Sent", key=f"mark_email_sent_{biz_id}", disabled=not email_shown):
+                                    sender.confirm_sent(biz_id, "email", edited_email_body, follow_up_count)
+                                    db.clear_draft(biz_id, "email")
+                                    st.session_state[email_sent_key] = True
+                                    st.cache_data.clear()
+                                    st.rerun()
+                    else:
+                        with col_wa:
+                            st.info("No business email was found for this lead — WhatsApp is the only outreach channel available.")
 
                     # ── WhatsApp channel ──────────────────────────────
                     with col_wa:
@@ -393,8 +397,8 @@ def main():
                                 new_wa = whatsapp_generator.generate_whatsapp(
                                     lead, audit or {}, recs, follow_up_number=follow_up_count
                                 )
-                                st.session_state[wa_body_key] = new_wa
                                 db.save_draft(biz_id, None, None, new_wa)
+                                st.session_state.pop(wa_body_key, None)
                                 st.rerun()
 
                             if st.button("Send WhatsApp", key=f"send_wa_{biz_id}"):

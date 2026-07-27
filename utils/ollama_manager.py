@@ -7,9 +7,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import config
 from utils.logger import get_logger
 
-OLLAMA_URL = "http://localhost:11434"
 LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "logs"
 logger = get_logger("ollama_manager")
 
@@ -17,7 +17,7 @@ logger = get_logger("ollama_manager")
 def _is_ollama_reachable() -> bool:
     """Return True if Ollama responds to an HTTP GET on its root endpoint."""
     try:
-        req = urllib.request.Request(OLLAMA_URL, method="GET")
+        req = urllib.request.Request(config.OLLAMA_URL, method="GET")
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read()
         return True
@@ -53,7 +53,7 @@ def _start_ollama() -> subprocess.Popen | None:
     return proc
 
 
-def ensure_ollama_running(timeout_seconds: int = 20) -> bool:
+def ensure_ollama_running(timeout_seconds: int = config.OLLAMA_STARTUP_TIMEOUT) -> bool:
     """Make sure Ollama is reachable, starting it if necessary.
 
     Returns True if Ollama is (or becomes) reachable within *timeout_seconds*,
@@ -62,7 +62,7 @@ def ensure_ollama_running(timeout_seconds: int = 20) -> bool:
     try:
         # 1. Already running?
         if _is_ollama_reachable():
-            logger.info("Ollama is already running at %s", OLLAMA_URL)
+            logger.info("Ollama is already running at %s", config.OLLAMA_URL)
             return True
 
         # 2. Start it
