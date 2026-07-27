@@ -22,47 +22,32 @@ from utils.timeutil import today_local
 logger = get_logger(__name__)
 
 
-def main() -> int:
-    # 1. Preflight check
-    ok, failures = preflight_check.run()
-    if not ok:
-        print("[FAIL] Preflight check failed:")
-        for reason in failures:
-            print(f"  - {reason}")
-        return 1
+def run_pipeline(db: Database) -> dict:
+    """Run the full daily scout pipeline on an initialised Database.
 
-    db = Database()
-    db.init_db()
-
-    # 2. Backup database before any writes
+    Returns a summary dict with keys: found, new, duplicates, messages_ready.
+    """
+    # 1. Backup database before any writes
     backup_db.run(db.db_path)
 
-    # 3. Scout configured categories across all cities
+    # 2. Scout configured categories across all cities
     total_found = 0
     total_new = 0
     total_duplicates = 0
 
     for city in config.CITIES:
-        city_found = 0
-        city_new = 0
-        city_duplicates = 0
+        res = pipeline.run_scout_city(city, config.CATEGORIES, db)
 
-        for category in config.CATEGORIES:
-            res = pipeline.run_scout(city, category, db)
-            city_found += res.get("found", 0)
-            city_new += res.get("new", 0)
-            city_duplicates += res.get("duplicates", 0)
-
-        total_found += city_found
-        total_new += city_new
-        total_duplicates += city_duplicates
+        total_found += res.get("found", 0)
+        total_new += res.get("new", 0)
+        total_duplicates += res.get("duplicates", 0)
 
         logger.info(
             "City %s complete. Found: %d, New: %d, Duplicates: %d",
             city,
-            city_found,
-            city_new,
-            city_duplicates,
+            res.get("found", 0),
+            res.get("new", 0),
+            res.get("duplicates", 0),
         )
 
     logger.info(
@@ -72,7 +57,7 @@ def main() -> int:
         total_duplicates,
     )
 
-    # 4. Audit, score, and draft for New leads
+    # 3. Audit, score, and draft for New leads
     new_leads = db.get_leads(status="New")
     for biz in new_leads:
         audit = run_audit(biz, db)
@@ -95,7 +80,7 @@ def main() -> int:
             )
             transition_status(biz["id"], "Ready to Contact", db)
 
-    # 5. Follow-up candidates
+    # 4. Follow-up candidates
     candidates = get_followup_candidates(db)
     for biz in candidates:
         audit = db.get_latest_audit(biz["id"])
@@ -108,7 +93,42 @@ def main() -> int:
             biz, audit or {}, recs, follow_up_number=follow_up_num
         )
 
-    # 6. Print final summary using dashboard metric names and today_local()
+    # 5. Collect summary
+    date_label = today_local()
+    counts = db.get_dashboard_counts(date_label)
+
+    summary = {
+        "found": total_found,
+        "new": total_new,
+        "duplicates": total_duplicates,
+        "messages_ready": counts["messages_ready"],
+    }
+    return summary
+
+
+def main() -> int:
+    # Preflight check
+    ok, failures = preflight_check.run()
+    if not ok:
+        print("[FAIL] Preflight check failed:")
+        for reason in failures:
+            print(f"  - {reason}")
+        return 1
+
+    db = Database()
+    db.init_db()
+
+    # Guard: skip if today's scout already ran (e.g. via dashboard trigger)
+    last = db.get_last_scout_date()
+    today = today_local()
+    if last == today:
+        print(f"[SKIP] Scout already ran today ({today}), skipping pipeline")
+        return 0
+
+    summary = run_pipeline(db)
+    db.set_last_scout_date(today)
+
+    # Print final summary using dashboard metric names and today_local()
     date_label = today_local()
     counts = db.get_dashboard_counts(date_label)
 
@@ -125,13 +145,6 @@ def main() -> int:
     print(f"\nLeadFinder Daily Summary ({date_label}):")
     for label, value in card_defs:
         print(f"  {label}: {value}")
-
-    summary = {
-        "found": total_found,
-        "new": total_new,
-        "duplicates": total_duplicates,
-        "messages_ready": counts["messages_ready"],
-    }
 
     if config.ENABLE_EMAIL_NOTIFY:
         send_email_notification(summary)

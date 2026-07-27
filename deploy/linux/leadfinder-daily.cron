@@ -1,0 +1,19 @@
+# ── LeadFinder daily scout ──────────────────────────────────────────────
+#
+# With config.CITIES and config.CATEGORIES now covering 9 cities and 50+
+# categories, a full run is city × category searches (400-500+), each
+# with a 2-5 second throttling delay per TRAI compliance (T2.1).
+#
+# Schedule this at least 60-90 minutes before you'd actually want fresh
+# leads ready — not the quick few-minute run a single-city/single-category
+# example might imply.
+#
+# Example: for leads ready by 09:00, schedule at 07:30 or earlier.
+# Daily at 7:30 AM:
+#   30 7 * * * cd /path/to/LeadFinder && .venv/bin/python scripts/run_daily.py
+#
+# ── Guard against double-scout ─────────────────────────────────────────
+# If the dashboard's background trigger (scripts/auto_scout_runner.py)
+# already ran today's scout (e.g. because you opened the dashboard before
+# this cron time), run_daily.py will detect get_last_scout_date() == today
+# and skip its own pipeline automatically.
