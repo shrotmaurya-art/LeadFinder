@@ -25,6 +25,13 @@ _OPT_OUT_RE = re.compile(r"reply\s+stop|text\s+stop|opt[\s-]?out", re.IGNORECASE
 # WhatsApp templates – 3 structurally distinct casual openings, 2-3 sentences
 # ---------------------------------------------------------------------------
 
+_PLACEHOLDER_INSTRUCTIONS = (
+    "  You MUST NOT write any closing name or sign-off yourself.  "
+    "End the message with exactly this token on its own line: {{SIGNOFF}}\n"
+    "  Do NOT use {{STARTING_PRICE}} in the text — "
+    "a post-processing step will substitute the real value."
+)
+
 _TEMPLATES: list[str] = [
     # 0  Compliment-first, casual
     (
@@ -34,6 +41,7 @@ _TEMPLATES: list[str] = [
         "gap.  Do NOT claim anything not stated below.  Do NOT mention any "
         "service the business already has.  Keep it warm and conversational, "
         "under 50 words."
+        + _PLACEHOLDER_INSTRUCTIONS
     ),
     # 1  Quick observation, casual
     (
@@ -43,6 +51,7 @@ _TEMPLATES: list[str] = [
         "the single biggest gap below.  Do NOT claim anything not stated "
         "below.  Do NOT mention any service the business already has.  Keep "
         "it brief and conversational, under 50 words."
+        + _PLACEHOLDER_INSTRUCTIONS
     ),
     # 2  Direct but casual offer
     (
@@ -52,6 +61,7 @@ _TEMPLATES: list[str] = [
         "you can help with — no fluff, no false claims.  Do NOT claim "
         "anything not stated below.  Do NOT mention any service the business "
         "already has.  Keep it brief and conversational, under 50 words."
+        + _PLACEHOLDER_INSTRUCTIONS
     ),
 ]
 
@@ -60,6 +70,7 @@ _FOLLOW_UP_TEMPLATE: str = (
     "Write a 2-sentence follow-up message.  Reference that this is a "
     "follow-up to a previous message without sounding pushy.  Keep the "
     "tone warm and casual.  Under 30 words."
+    + _PLACEHOLDER_INSTRUCTIONS
 )
 
 
@@ -115,8 +126,8 @@ def generate_whatsapp(
 
     # --- build pitch hint (config-driven, never hardcoded) ----------------
     pitch_hint = (
-        f"Mention your name ({config.FREELANCER_NAME}) and that pricing "
-        f"starts at {config.STARTING_PRICE} — one short clause, not a pitch.  "
+        f"Mention your name and that pricing "
+        f"starts at {{STARTING_PRICE}} — one short clause, not a pitch.  "
         f"Do NOT include a portfolio link on WhatsApp."
     )
 
@@ -126,7 +137,7 @@ def generate_whatsapp(
         if recommendations:
             price_reminder = (
                 f"  You may briefly remind them that pricing starts at "
-                f"{config.STARTING_PRICE} — one short clause, not a pitch."
+                f"{{STARTING_PRICE}} — one short clause, not a pitch."
             )
         user_prompt = (
             f"Business: {name}.\n"
@@ -147,6 +158,16 @@ def generate_whatsapp(
         raw = llm_generate(body_sys, user_prompt, max_tokens=120)
     except OllamaUnavailableError:
         raw = _fallback_message(name, biggest_gap)
+
+    # --- deterministic post-processing: placeholders → real values ----------
+    raw = raw.rstrip()
+    if "{{SIGNOFF}}" in raw:
+        raw = raw.replace("{{SIGNOFF}}", f"\n\n- {config.FREELANCER_NAME}").rstrip()
+    else:
+        raw += f"\n\n- {config.FREELANCER_NAME}"
+
+    raw = raw.replace("{{STARTING_PRICE}}", config.STARTING_PRICE)
+    raw = raw.replace("{STARTING_PRICE}", config.STARTING_PRICE)
 
     # --- truncate first, to guarantee room for OPT_OUT_LINE ---------------
     if len(raw) > _OPT_OUT_MAX:

@@ -17,6 +17,13 @@ log = get_logger(__name__)
 # Template skeletons – three structurally distinct opening styles
 # ---------------------------------------------------------------------------
 
+_PLACEHOLDER_INSTRUCTIONS = (
+    "  You MUST NOT write any closing name or sign-off yourself.  "
+    "End the message body with exactly this token on its own line: {{SIGNOFF}}\n"
+    "  Do NOT use {{STARTING_PRICE}} or {{PORTFOLIO_URL}} in the text — "
+    "a post-processing step will substitute the real values."
+)
+
 _TEMPLATES: list[str] = [
     # 0  Compliment-first
     (
@@ -27,6 +34,7 @@ _TEMPLATES: list[str] = [
         "that isn't stated below.  Do NOT mention any service they already "
         "have.  End with a soft call to action (e.g. 'happy to share a quick "
         "idea' — not a hard sell).  Keep it conversational, under 120 words."
+        + _PLACEHOLDER_INSTRUCTIONS
     ),
     # 1  Observation-first
     (
@@ -38,6 +46,7 @@ _TEMPLATES: list[str] = [
         "Do NOT mention any service they already have.  End with a soft call "
         "to action (e.g. 'worth a quick chat?' — not a hard sell).  Keep it "
         "conversational, under 120 words."
+        + _PLACEHOLDER_INSTRUCTIONS
     ),
     # 2  Direct-offer-first
     (
@@ -49,6 +58,7 @@ _TEMPLATES: list[str] = [
         "mention any service they already have.  End with a soft call to "
         "action (e.g. 'want me to walk you through it?' — not a hard sell).  "
         "Keep it conversational, under 120 words."
+        + _PLACEHOLDER_INSTRUCTIONS
     ),
 ]
 
@@ -57,6 +67,7 @@ _FOLLOW_UP_TEMPLATE: str = (
     "Write a 2-sentence follow-up email.  Reference that this is a follow-up "
     "to a previous message without sounding pushy.  Keep the tone warm and "
     "brief.  Under 50 words."
+    + _PLACEHOLDER_INSTRUCTIONS
 )
 
 
@@ -118,14 +129,14 @@ def generate_email(
 
     # --- build pitch hint (config-driven, never hardcoded) ----------------
     _portfolio_hint = (
-        f"  Include {config.PORTFOLIO_URL} as a plain link if set."
+        "  Include {{PORTFOLIO_URL}} as a plain link if set."
         if config.PORTFOLIO_URL
         else ""
     )
     pitch_hint = (
         f"Mention naturally, in ONE sentence near the end, that "
-        f"{config.FREELANCER_NAME} is an {config.FREELANCER_PITCH}, with "
-        f"pricing starting at {config.STARTING_PRICE}.  Do NOT make this "
+        f"you are an {config.FREELANCER_PITCH}, with "
+        f"pricing starting at {{STARTING_PRICE}}.  Do NOT make this "
         f"sound like a template or an ad — it should read like a real person "
         f"casually mentioning their own service, not a pitch deck."
         f"{_portfolio_hint}"
@@ -137,7 +148,7 @@ def generate_email(
         if recommendations:
             price_reminder = (
                 f"  You may briefly remind them that pricing starts at "
-                f"{config.STARTING_PRICE} — one short clause, not a pitch."
+                f"{{STARTING_PRICE}} — one short clause, not a pitch."
             )
         user_prompt = (
             f"Business: {name} in {city}.\n"
@@ -165,6 +176,18 @@ def generate_email(
             f"Happy to chat if you're interested.\n\n"
             f"Best regards"
         )
+
+    # --- deterministic post-processing: placeholders → real values ----------
+    body = body.rstrip()
+    if "{{SIGNOFF}}" in body:
+        body = body.replace("{{SIGNOFF}}", f"\n\n- {config.FREELANCER_NAME}").rstrip()
+    else:
+        body += f"\n\n- {config.FREELANCER_NAME}"
+
+    body = body.replace("{{STARTING_PRICE}}", config.STARTING_PRICE)
+    body = body.replace("{STARTING_PRICE}", config.STARTING_PRICE)
+    body = body.replace("{{PORTFOLIO_URL}}", config.PORTFOLIO_URL)
+    body = body.replace("{PORTFOLIO_URL}", config.PORTFOLIO_URL)
 
     # --- generate subject (separate LLM call) -----------------------------
     if follow_up_number >= 1:
