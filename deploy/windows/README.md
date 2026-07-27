@@ -46,3 +46,35 @@ dashboard-triggered `scripts/auto_scout_runner.py` — share the
 `get_last_scout_date()` / `set_last_scout_date()` guard in the database,
 so whichever runs first each day "wins" and the second one skips instead
 of scouting twice.
+
+## One-click Launcher
+
+`start_leadfinder.bat` launches the dashboard without opening a terminal
+every time:
+
+1. Open **PowerShell** and run this **once** to create the Desktop shortcut:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File deploy\windows\create_desktop_shortcut.ps1
+   ```
+2. After that, just double-click **LeadFinderAI** on your Desktop.
+
+**What the launcher does:**
+- Changes to the project root directory
+- Activates the virtual environment (`.venv` by default; edit `VENV_DIR` in
+  the `.bat` if yours is named differently)
+- Launches `streamlit run ui/dashboard.py` in a **minimized** window (not
+  hidden — so you can see errors if something breaks)
+- Waits 5 seconds, then opens `http://localhost:8501` in your default browser
+- The launcher script exits; Streamlit keeps running in its minimized window
+
+**To stop the dashboard:**
+
+Option A — double-click `deploy\windows\stop_leadfinder.bat` (finds and
+kills the Streamlit process on port 8501).
+
+Option B — `Ctrl+C` in the minimized Streamlit window if you can find it.
+
+Option C — Task Manager → end `streamlit.exe`.
+
+**Custom icon:** Replace `deploy\windows\icon.ico` with any `.ico` file you
+like, then re-run the shortcut script to pick it up.
