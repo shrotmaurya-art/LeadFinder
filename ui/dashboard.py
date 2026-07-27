@@ -8,9 +8,12 @@ from crm.database import Database
 from crm.leads import OptedOutError, STATUS_FLOW, transition_status
 from outreach import email_generator, sender, whatsapp_generator
 from outreach.sender import MissingEmailError
+from utils.logger import get_logger
 from utils.timeutil import today_local
 from scripts.preflight_check import run as preflight_run
 from scripts.auto_scout_runner import run_in_background
+
+logger = get_logger(__name__)
 
 CUSTOM_CSS = """
 <style>
@@ -141,9 +144,12 @@ def main():
     db.init_db()
 
     # ── Background scout (once per Streamlit session) ────────────────
-    if "_scout_launch_key" not in st.session_state:
-        st.session_state["_scout_launch_key"] = True
-        run_in_background(db)
+    if config.ENABLE_DASHBOARD_AUTO_SCOUT:
+        if "_scout_launch_key" not in st.session_state:
+            st.session_state["_scout_launch_key"] = True
+            run_in_background(db)
+    else:
+        logger.info("ENABLE_DASHBOARD_AUTO_SCOUT=false — background auto-scout skipped")
 
     # ── Sidebar filters ──────────────────────────────────────────────
 
@@ -302,6 +308,7 @@ def main():
 
                     # (d) Email and WhatsApp side-by-side, each fully self-contained
                     has_email = bool(lead.get("email"))
+                    has_phone = bool(lead.get("normalized_phone") or lead.get("phone"))
                     if has_email:
                         col_email, col_wa = st.columns(2)
                     else:
@@ -379,57 +386,60 @@ def main():
 
                     # ── WhatsApp channel ──────────────────────────────
                     with col_wa:
-                        st.markdown("### WhatsApp Outreach")
-                        edited_wa_body = st.text_area("Message", key=wa_body_key, height=275)
+                        if has_phone:
+                            st.markdown("### WhatsApp Outreach")
+                            edited_wa_body = st.text_area("Message", key=wa_body_key, height=275)
 
-                        # Persist any edits back to DB
-                        db.save_draft(biz_id, None, None, edited_wa_body)
+                            # Persist any edits back to DB
+                            db.save_draft(biz_id, None, None, edited_wa_body)
 
-                        wa_sent_key = f"wa_sent_{biz_id}"
-                        if st.session_state.get(wa_sent_key):
-                            st.markdown(
-                                '<span class="sent-confirm">\u2713 Sent via WhatsApp</span>',
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            # Regenerate button
-                            if st.button("\U0001f504 Regenerate WhatsApp", key=f"regen_wa_{biz_id}"):
-                                new_wa = whatsapp_generator.generate_whatsapp(
-                                    lead, audit or {}, recs, follow_up_number=follow_up_count
+                            wa_sent_key = f"wa_sent_{biz_id}"
+                            if st.session_state.get(wa_sent_key):
+                                st.markdown(
+                                    '<span class="sent-confirm">\u2713 Sent via WhatsApp</span>',
+                                    unsafe_allow_html=True,
                                 )
-                                db.save_draft(biz_id, None, None, new_wa)
-                                st.session_state.pop(wa_body_key, None)
-                                st.rerun()
+                            else:
+                                # Regenerate button
+                                if st.button("\U0001f504 Regenerate WhatsApp", key=f"regen_wa_{biz_id}"):
+                                    new_wa = whatsapp_generator.generate_whatsapp(
+                                        lead, audit or {}, recs, follow_up_number=follow_up_count
+                                    )
+                                    db.save_draft(biz_id, None, None, new_wa)
+                                    st.session_state.pop(wa_body_key, None)
+                                    st.rerun()
 
-                            if st.button("Send WhatsApp", key=f"send_wa_{biz_id}"):
-                                try:
-                                    res = sender.prepare_send(lead, "whatsapp", None, edited_wa_body)
-                                except OptedOutError as e:
-                                    res = {"blocked": True, "reason": str(e)}
-                                st.session_state[f"wa_res_{biz_id}"] = res
-                                if not res.get("blocked"):
-                                    st.session_state[f"wa_shown_{biz_id}"] = True
+                                if st.button("Send WhatsApp", key=f"send_wa_{biz_id}"):
+                                    try:
+                                        res = sender.prepare_send(lead, "whatsapp", None, edited_wa_body)
+                                    except OptedOutError as e:
+                                        res = {"blocked": True, "reason": str(e)}
+                                    st.session_state[f"wa_res_{biz_id}"] = res
+                                    if not res.get("blocked"):
+                                        st.session_state[f"wa_shown_{biz_id}"] = True
 
-                            wa_res = st.session_state.get(f"wa_res_{biz_id}")
-                            if wa_res:
-                                if wa_res.get("blocked"):
-                                    st.warning(wa_res.get("reason", "Send blocked"))
-                                else:
-                                    if wa_res.get("link"):
-                                        st.link_button("Open WhatsApp", wa_res["link"])
-                                    if wa_res.get("fallback") == "copy":
-                                        dest_phone = lead.get("normalized_phone") or lead.get("phone") or "N/A"
-                                        st.write(f"**Recipient Phone:** `{dest_phone}`")
-                                        st.code(edited_wa_body)
-                                        st.info("Copy the phone number and message body above to send manually via WhatsApp.")
+                                wa_res = st.session_state.get(f"wa_res_{biz_id}")
+                                if wa_res:
+                                    if wa_res.get("blocked"):
+                                        st.warning(wa_res.get("reason", "Send blocked"))
+                                    else:
+                                        if wa_res.get("link"):
+                                            st.link_button("Open WhatsApp", wa_res["link"])
+                                        if wa_res.get("fallback") == "copy":
+                                            dest_phone = lead.get("normalized_phone") or lead.get("phone") or "N/A"
+                                            st.write(f"**Recipient Phone:** `{dest_phone}`")
+                                            st.code(edited_wa_body)
+                                            st.info("Copy the phone number and message body above to send manually via WhatsApp.")
 
-                            wa_shown = st.session_state.get(f"wa_shown_{biz_id}", False)
-                            if st.button("Mark as Sent", key=f"mark_wa_sent_{biz_id}", disabled=not wa_shown):
-                                sender.confirm_sent(biz_id, "whatsapp", edited_wa_body, follow_up_count)
-                                db.clear_draft(biz_id, "whatsapp")
-                                st.session_state[wa_sent_key] = True
-                                st.cache_data.clear()
-                                st.rerun()
+                                wa_shown = st.session_state.get(f"wa_shown_{biz_id}", False)
+                                if st.button("Mark as Sent", key=f"mark_wa_sent_{biz_id}", disabled=not wa_shown):
+                                    sender.confirm_sent(biz_id, "whatsapp", edited_wa_body, follow_up_count)
+                                    db.clear_draft(biz_id, "whatsapp")
+                                    st.session_state[wa_sent_key] = True
+                                    st.cache_data.clear()
+                                    st.rerun()
+                        else:
+                            st.info("No phone number was found for this lead — WhatsApp outreach is not available.")
 
     # ── Pipeline tab ────────────────────────────────────────────────
 

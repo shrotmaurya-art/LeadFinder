@@ -1,0 +1,7 @@
+# ── LeadFinder Docker setup ─────────────────────────────────────────────
+#
+# If running in this container, set ENABLE_DASHBOARD_AUTO_SCOUT=false —
+# this container has no Playwright/Ollama, so the background auto-scout
+# would fail every time. Continue relying on a host-side scheduled
+# run_daily.py or a separate always-on machine for scouting.
+# ────────────────────────────────────────────────────────────────────────
