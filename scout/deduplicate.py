@@ -2,14 +2,13 @@
 
 from rapidfuzz import fuzz
 
+import config
 from crm.database import Database
 from scout.normalize import normalize_address
 from utils.logger import get_logger
 
 
 logger = get_logger(__name__)
-
-SOFT_MATCH_THRESHOLD = 90
 
 
 def is_duplicate(candidate: dict, db: Database) -> tuple[bool, int | None]:
@@ -38,7 +37,7 @@ def is_duplicate(candidate: dict, db: Database) -> tuple[bool, int | None]:
         score = fuzz.token_sort_ratio(
             candidate_text, f"{existing_name} {existing_address}"
         )
-        is_soft_match = score >= SOFT_MATCH_THRESHOLD
+        is_soft_match = score >= config.SOFT_MATCH_THRESHOLD
         logger.info(
             "Soft match comparison candidate=%r existing=%r score=%.2f duplicate=%s",
             candidate_name,

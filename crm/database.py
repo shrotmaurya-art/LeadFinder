@@ -2,6 +2,7 @@ import os
 import sqlite3
 import contextlib
 from pathlib import Path
+import config
 from utils.logger import get_logger
 from utils.timeutil import today_local, now_local_iso
 
@@ -29,7 +30,7 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         # PRAGMA busy_timeout is set on every connection per WAL requirement
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute(f"PRAGMA busy_timeout={config.SQLITE_BUSY_TIMEOUT_MS}")
         return conn
 
     def init_db(self) -> None:
@@ -308,7 +309,7 @@ class Database:
 
             # 3. messages_ready
             cursor = conn.execute(
-                f"SELECT COUNT(*) FROM businesses WHERE status = 'Ready' AND {biz_clause}",
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'Ready to Contact' AND {biz_clause}",
                 (*biz_params,),
             )
             counts["messages_ready"] = cursor.fetchone()[0]
@@ -341,7 +342,7 @@ class Database:
 
             # 6. meetings
             cursor = conn.execute(
-                f"SELECT COUNT(*) FROM businesses WHERE status = 'Meeting' AND {biz_clause}",
+                f"SELECT COUNT(*) FROM businesses WHERE status = 'Meeting Scheduled' AND {biz_clause}",
                 (*biz_params,),
             )
             counts["meetings"] = cursor.fetchone()[0]
@@ -365,9 +366,9 @@ class Database:
         """Persists the currently-active draft text for a business awaiting send."""
         query = """
             UPDATE businesses
-               SET draft_email_subject = ?,
-                   draft_email_body = ?,
-                   draft_whatsapp_message = ?,
+               SET draft_email_subject = COALESCE(?, draft_email_subject),
+                   draft_email_body    = COALESCE(?, draft_email_body),
+                   draft_whatsapp_message = COALESCE(?, draft_whatsapp_message),
                    updated_at = ?
              WHERE id = ?
         """
@@ -407,3 +408,33 @@ class Database:
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 conn.execute(query, (now_local_iso(), business_id))
+
+    def get_last_scout_date(self) -> str | None:
+        """Returns the value stored under the 'last_scout_date' settings key, or None."""
+        query = "SELECT value FROM settings WHERE key = ?"
+        with contextlib.closing(self._connect()) as conn:
+            cursor = conn.execute(query, ("last_scout_date",))
+            row = cursor.fetchone()
+            return row["value"] if row else None
+
+    def set_last_scout_date(self, date_str: str) -> None:
+        """Upserts the 'last_scout_date' settings key with the given date string."""
+        query = """
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(query, ("last_scout_date", date_str))
+
+    def get_city_lead_counts(self) -> list[dict]:
+        """Return per-city lead counts, ordered by count descending."""
+        query = """
+            SELECT city, COUNT(*) AS cnt
+            FROM businesses
+            GROUP BY city
+            ORDER BY cnt DESC
+        """
+        with contextlib.closing(self._connect()) as conn:
+            cursor = conn.execute(query)
+            return [dict(row) for row in cursor.fetchall()]

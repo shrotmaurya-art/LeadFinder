@@ -10,3 +10,4 @@ pandas
 pytest
 pytest-mock
 tzdata
+plyer

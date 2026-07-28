@@ -6,7 +6,10 @@ from crm.database import Database
 
 
 db = Database()
-COPY_FALLBACK_LIMIT = 1800
+
+
+class MissingEmailError(Exception):
+    """Raised when an email send is attempted but no business email is on file."""
 
 
 def to_whatsapp_link_format(normalized_phone: str) -> str:
@@ -24,7 +27,7 @@ def prepare_send(business: dict, channel: str, subject: str | None, message: str
     if channel == "email":
         email = business.get("email")
         if not email:
-            return {"blocked": True, "reason": "No business email on file"}
+            raise MissingEmailError("No business email on file — cannot send email to this lead")
         if config.EMAIL_LINK_STYLE == "gmail_web":
             link = (
                 "https://mail.google.com/mail/?view=cm&fs=1"
@@ -35,14 +38,14 @@ def prepare_send(business: dict, channel: str, subject: str | None, message: str
         else:
             link = f"mailto:{email}?subject={quote(subject or '')}&body={quote(message)}"
     elif channel == "whatsapp":
-        phone = business.get("normalized_phone")
+        phone = business.get("normalized_phone") or business.get("phone")
         if not phone:
             return {"blocked": True, "reason": "No phone number on file"}
         link = f"https://wa.me/{to_whatsapp_link_format(phone)}?text={quote(message)}"
     else:
         raise ValueError(f"Unsupported outreach channel: {channel}")
 
-    if len(link) > COPY_FALLBACK_LIMIT:
+    if len(link) > config.COPY_FALLBACK_LIMIT:
         return {"blocked": False, "link": None, "fallback": "copy"}
     return {"blocked": False, "link": link, "fallback": None}
 

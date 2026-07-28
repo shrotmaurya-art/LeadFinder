@@ -6,6 +6,7 @@ import time
 import urllib.parse
 from playwright.async_api import async_playwright, Page
 
+import config
 from scout.base import BusinessDataSource
 from scout.normalize import normalize_phone, normalize_website, normalize_address
 from utils.logger import get_logger
@@ -25,127 +26,148 @@ class PlaywrightMapsSource(BusinessDataSource):
 
     def search(self, city: str, category: str) -> list[dict]:
         """Performs a synchronous search for businesses in a city and category.
-        
+
         Enforces a random 2-5 second delay between separate search() calls.
+        Delegates to search_city for a single category.
+        """
+        batch = self.search_city(city, [category])
+        return batch.get(category, [])
+
+    def search_city(self, city: str, categories: list[str]) -> dict[str, list[dict]]:
+        """Search multiple categories for a city using a single browser session.
+
+        Returns a dict mapping category name to its list of business records.
+        This is dramatically faster than calling search() per category because
+        it launches the browser only once.
         """
         now = time.time()
         elapsed = now - PlaywrightMapsSource._last_search_time
-        required_delay = random.uniform(2.0, 5.0)
+        required_delay = random.uniform(config.SEARCH_DELAY_MIN, config.SEARCH_DELAY_MAX)
         if PlaywrightMapsSource._last_search_time > 0 and elapsed < required_delay:
             sleep_time = required_delay - elapsed
-            logger.info("Throttling search() call. Sleeping for %.2f seconds.", sleep_time)
+            logger.info("Throttling search_city() call. Sleeping for %.2f seconds.", sleep_time)
             time.sleep(sleep_time)
 
         try:
-            results = asyncio.run(self._async_search(city, category))
+            results = asyncio.run(self._async_search_city(city, categories))
         except Exception as e:
-            logger.error("Failed to complete search for %s in %s: %s", category, city, e, exc_info=True)
-            results = []
+            logger.error("Failed to complete batch search for %s: %s", city, e, exc_info=True)
+            results = {cat: [] for cat in categories}
         finally:
             PlaywrightMapsSource._last_search_time = time.time()
 
         return results
 
-    async def _async_search(self, city: str, category: str) -> list[dict]:
-        """Asynchronously scrapes Google Maps for results."""
-        results = []
+    async def _async_search_city(self, city: str, categories: list[str]) -> dict[str, list[dict]]:
+        """Search all categories for a city in a single browser session."""
+        all_results: dict[str, list[dict]] = {}
         user_agent = random.choice(USER_AGENTS)
-        
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
                 user_agent=user_agent,
-                viewport={"width": 1280, "height": 800}
+                viewport={"width": 1280, "height": 800},
             )
-            page = await context.new_page()
 
-            query = f"{category} in {city}"
-            encoded_query = urllib.parse.quote_plus(query)
-            search_url = f"https://www.google.com/maps/search/{encoded_query}"
-            
-            logger.info("Navigating to search URL: %s", search_url)
-            await page.goto(search_url)
+            for idx, category in enumerate(categories):
+                if idx > 0:
+                    await asyncio.sleep(random.uniform(config.SEARCH_DELAY_MIN, config.SEARCH_DELAY_MAX))
 
-            # Check if we landed on a details page directly or a list feed
-            try:
-                await page.wait_for_selector('div[role="feed"]', timeout=10000)
-                is_list = True
-            except Exception:
-                is_list = False
-
-            if not is_list:
-                # Check if we redirected directly to a single business detail page
-                h1_count = await page.locator('h1').count()
-                if h1_count > 0:
-                    logger.info("Directly redirected to single business detail page.")
-                    try:
-                        place = await self._extract_current_place(page, page.url, city, category)
-                        results.append(place)
-                    except Exception as e:
-                        logger.error("Failed to extract single page result: %s", e, exc_info=True)
-                    await browser.close()
-                    return results
-                else:
-                    logger.info("No list feed or detail page found (possibly zero results).")
-                    await browser.close()
-                    return []
-
-            # We are on a list feed page. Scroll to load ~20 results.
-            feed = page.locator('div[role="feed"]')
-            scroll_attempts = 0
-            max_scroll_attempts = 3
-            card_urls = []
-
-            while len(card_urls) < 20 and scroll_attempts < max_scroll_attempts:
-                cards = page.locator('div[role="feed"] a[href*="/maps/place/"]')
-                count = await cards.count()
-
-                new_urls_found = False
-                for i in range(count):
-                    href = await cards.nth(i).get_attribute("href")
-                    if href and href not in card_urls:
-                        card_urls.append(href)
-                        new_urls_found = True
-
-                if len(card_urls) >= 20:
-                    break
-
-                logger.info("Scrolling results panel. Currently found %d URLs.", len(card_urls))
+                page = await context.new_page()
                 try:
-                    await feed.evaluate('(el) => el.scrollTop = el.scrollHeight')
-                except Exception as scroll_err:
-                    logger.warning("Failed to scroll feed panel: %s", scroll_err)
-                    break
-
-                # Random 2-5 second delay between scroll actions
-                await asyncio.sleep(random.uniform(2.0, 5.0))
-
-                if not new_urls_found:
-                    scroll_attempts += 1
-                else:
-                    scroll_attempts = 0
-
-            logger.info("Found %d total card URLs. Starting detail extraction.", len(card_urls))
-
-            # Process up to 20 listings
-            for card_url in card_urls[:20]:
-                try:
-                    logger.info("Visiting details for: %s", card_url)
-                    await page.goto(card_url)
-                    place = await self._extract_current_place(page, card_url, city, category)
-                    results.append(place)
+                    all_results[category] = await self._search_category(page, city, category)
                 except Exception as e:
-                    # Log failure of individual listing and continue
-                    logger.error("Failed to extract details from card %s: %s", card_url, e)
+                    logger.error("Failed to search %s in %s: %s", category, city, e, exc_info=True)
+                    all_results[category] = []
+                finally:
+                    await page.close()
 
             await browser.close()
+
+        return all_results
+
+    async def _search_category(self, page: Page, city: str, category: str) -> list[dict]:
+        """Search a single category using an already-open page."""
+        results: list[dict] = []
+
+        query = f"{category} in {city}"
+        encoded_query = urllib.parse.quote_plus(query)
+        search_url = f"https://www.google.com/maps/search/{encoded_query}"
+
+        logger.info("Navigating to search URL: %s", search_url)
+        await page.goto(search_url)
+
+        try:
+            await page.wait_for_selector('div[role="feed"]', timeout=config.PAGE_LOAD_TIMEOUT_MS)
+            is_list = True
+        except Exception:
+            is_list = False
+
+        if not is_list:
+            h1_count = await page.locator('h1').count()
+            if h1_count > 0:
+                logger.info("Directly redirected to single business detail page.")
+                try:
+                    place = await self._extract_current_place(page, page.url, city, category)
+                    results.append(place)
+                except Exception as e:
+                    logger.error("Failed to extract single page result: %s", e, exc_info=True)
+                return results
+            else:
+                logger.info("No list feed or detail page found (possibly zero results).")
+                return []
+
+        feed = page.locator('div[role="feed"]')
+        scroll_attempts = 0
+        max_scroll_attempts = config.MAX_SCROLL_ATTEMPTS
+        card_urls = []
+
+        while len(card_urls) < config.SCROLL_TARGET_RESULTS and scroll_attempts < max_scroll_attempts:
+            cards = page.locator('div[role="feed"] a[href*="/maps/place/"]')
+            count = await cards.count()
+
+            new_urls_found = False
+            for i in range(count):
+                href = await cards.nth(i).get_attribute("href")
+                if href and href not in card_urls:
+                    card_urls.append(href)
+                    new_urls_found = True
+
+            if len(card_urls) >= config.SCROLL_TARGET_RESULTS:
+                break
+
+            logger.info("Scrolling results panel. Currently found %d URLs.", len(card_urls))
+            try:
+                await feed.evaluate('(el) => el.scrollTop = el.scrollHeight')
+            except Exception as scroll_err:
+                logger.warning("Failed to scroll feed panel: %s", scroll_err)
+                break
+
+            await asyncio.sleep(random.uniform(config.SEARCH_DELAY_MIN, config.SEARCH_DELAY_MAX))
+
+            if not new_urls_found:
+                scroll_attempts += 1
+            else:
+                scroll_attempts = 0
+
+        logger.info("Found %d total card URLs. Starting detail extraction.", len(card_urls))
+
+        for card_url in card_urls[:config.SCROLL_TARGET_RESULTS]:
+            try:
+                logger.info("Visiting details for: %s", card_url)
+                await page.goto(card_url)
+                place = await self._extract_current_place(page, card_url, city, category)
+                results.append(place)
+            except Exception as e:
+                logger.error("Failed to extract details from card %s: %s", card_url, e)
 
         return results
 
     async def _extract_current_place(self, page: Page, url: str, city: str, category: str) -> dict:
         """Extracts business details from the currently loaded page."""
         # Wait for the name element (h1) to load
-        await page.wait_for_selector("h1", timeout=10000)
+        await page.wait_for_selector("h1", timeout=config.PAGE_LOAD_TIMEOUT_MS)
         
         # Give dynamic elements half a second to populate
         await page.wait_for_timeout(500)

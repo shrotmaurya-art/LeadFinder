@@ -166,7 +166,7 @@ def generate_email(
 
     # --- generate body ----------------------------------------------------
     try:
-        body = llm_generate(body_sys, user_prompt, max_tokens=250)
+        body = llm_generate(body_sys, user_prompt, max_tokens=config.EMAIL_MAX_TOKENS)
     except OllamaUnavailableError:
         body = (
             f"Hi {name},\n\n"
@@ -217,7 +217,7 @@ def generate_email(
         subject_user = f"Business: {name} in {city}.  Topic: {biggest_gap}."
 
     try:
-        subject = llm_generate(subject_sys, subject_user, max_tokens=30)
+        subject = llm_generate(subject_sys, subject_user, max_tokens=config.SUBJECT_MAX_TOKENS)
     except OllamaUnavailableError:
         subject = _fallback_subject(name)
 

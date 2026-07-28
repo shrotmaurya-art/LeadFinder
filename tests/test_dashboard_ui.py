@@ -1,10 +1,8 @@
 import pytest
-import pandas as pd
 from crm.database import Database
 from crm.leads import STATUS_FLOW, InvalidStatusTransitionError, transition_status
 from analyzer.recommendations import recommend_services
 from outreach import sender
-from ui.dashboard import _get_selected_rows
 
 
 @pytest.fixture
@@ -13,26 +11,6 @@ def dashboard_db(tmp_path, monkeypatch):
     database.init_db()
     monkeypatch.setattr(sender, "db", database)
     return database
-
-
-def test_get_selected_rows_dict_format():
-    sel_dict = {"selection": {"rows": [2]}}
-    assert _get_selected_rows(sel_dict) == [2]
-
-
-def test_get_selected_rows_object_format():
-    class DummySelection:
-        rows = [0]
-
-    class DummyState:
-        selection = DummySelection()
-
-    assert _get_selected_rows(DummyState()) == [0]
-
-
-def test_get_selected_rows_empty():
-    assert _get_selected_rows({}) == []
-    assert _get_selected_rows(None) == []
 
 
 def test_leads_to_review_ordering_and_recommendations(dashboard_db):

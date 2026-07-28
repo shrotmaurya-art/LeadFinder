@@ -9,15 +9,8 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def run_scout(city: str, category: str, db: Database) -> dict:
-    if config.DATA_SOURCE == "playwright":
-        source = PlaywrightMapsSource()
-    else:
-        from scout.places_api import PlacesAPISource
-        source = PlacesAPISource()
-
-    raw_results = source.search(city, category)
-
+def _process_records(raw_results: list[dict], db: Database) -> dict:
+    """Enrich, deduplicate, and insert a batch of raw records. Returns counts."""
     new = 0
     duplicates = 0
 
@@ -60,3 +53,36 @@ def run_scout(city: str, category: str, db: Database) -> dict:
             continue
 
     return {"found": len(raw_results), "new": new, "duplicates": duplicates}
+
+
+def run_scout(city: str, category: str, db: Database) -> dict:
+    if config.DATA_SOURCE == "playwright":
+        source = PlaywrightMapsSource()
+    else:
+        from scout.places_api import PlacesAPISource
+        source = PlacesAPISource()
+
+    raw_results = source.search(city, category)
+    return _process_records(raw_results, db)
+
+
+def run_scout_city(city: str, categories: list[str], db: Database) -> dict:
+    """Scout all categories for a city using a single browser session.
+
+    Falls back to per-category search for non-playwright data sources.
+    Returns aggregate counts: found, new, duplicates.
+    """
+    if config.DATA_SOURCE == "playwright":
+        source = PlaywrightMapsSource()
+        batch = source.search_city(city, categories)
+        all_results = []
+        for cat_results in batch.values():
+            all_results.extend(cat_results)
+    else:
+        from scout.places_api import PlacesAPISource
+        source = PlacesAPISource()
+        all_results = []
+        for category in categories:
+            all_results.extend(source.search(city, category))
+
+    return _process_records(all_results, db)

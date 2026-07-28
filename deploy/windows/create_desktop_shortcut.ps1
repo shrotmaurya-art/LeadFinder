@@ -9,6 +9,10 @@
     The icon file (icon.ico) lives next to this script.  Replace it with
     any .ico you prefer — the shortcut will pick it up automatically.
     If no icon.ico exists, the shortcut will use the default .bat icon.
+
+    NOTE: This shortcut embeds the absolute path resolved at creation
+    time.  If you move the project folder, re-run this script so the
+    WorkingDirectory inside the .lnk file stays correct.
 #>
 
 $ScriptDir   = Split-Path -Parent $PSCommandPath
@@ -26,7 +30,7 @@ if (-not (Test-Path $BatPath)) {
 $wshell = New-Object -ComObject WScript.Shell
 $shortcut = $wshell.CreateShortcut($ShortcutPath)
 $shortcut.TargetPath         = $BatPath
-$shortcut.WorkingDirectory   = $ProjectRoot
+$shortcut.WorkingDirectory   = $ScriptDir
 $shortcut.Description        = "LeadFinderAI Dashboard"
 if (Test-Path $IconPath) {
     $shortcut.IconLocation = $IconPath
@@ -34,6 +38,6 @@ if (Test-Path $IconPath) {
 $shortcut.Save()
 
 Write-Host "Shortcut created: $ShortcutPath"
-Write-Host "Working directory: $ProjectRoot"
+Write-Host "Working directory: $ScriptDir"
 Write-Host
 Write-Host "Double-click LeadFinderAI on your Desktop to launch."

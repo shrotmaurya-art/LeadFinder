@@ -17,7 +17,7 @@ from utils.logger import get_logger
 log = get_logger(__name__)
 
 OPT_OUT_LINE = " Reply STOP if you'd rather not hear from me again."
-_OPT_OUT_MAX = 400 - len(OPT_OUT_LINE)
+_OPT_OUT_MAX = config.WHATSAPP_CHAR_LIMIT - len(OPT_OUT_LINE)
 
 _OPT_OUT_RE = re.compile(r"reply\s+stop|text\s+stop|opt[\s-]?out", re.IGNORECASE)
 
@@ -155,7 +155,7 @@ def generate_whatsapp(
 
     # --- generate body ----------------------------------------------------
     try:
-        raw = llm_generate(body_sys, user_prompt, max_tokens=120)
+        raw = llm_generate(body_sys, user_prompt, max_tokens=config.WHATSAPP_MAX_TOKENS)
     except OllamaUnavailableError:
         raw = _fallback_message(name, biggest_gap)
 

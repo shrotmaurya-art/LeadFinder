@@ -4,6 +4,7 @@ from collections import OrderedDict
 import requests
 from bs4 import BeautifulSoup
 
+import config
 from utils.constants import PERSONAL_EMAIL_DOMAINS
 from utils.logger import get_logger
 
@@ -22,7 +23,7 @@ EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 def _fetch(url: str) -> str | None:
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=8)
+        resp = requests.get(url, headers=HEADERS, timeout=config.CONTENT_FETCH_TIMEOUT)
         if resp.status_code != 200:
             logger.debug("Non-200 status %s for %s", resp.status_code, url)
             return None

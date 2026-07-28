@@ -22,7 +22,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
-CACHE_TTL_SECONDS = 24 * 60 * 60
+CACHE_TTL_SECONDS = config.PLACES_CACHE_TTL_SECONDS
 BASE_FIELDS = [
     "places.id",
     "places.displayName",
@@ -69,7 +69,7 @@ class PlacesAPISource(BusinessDataSource):
                 "X-Goog-FieldMask": field_mask,
             },
             json={"textQuery": f"{category} in {city}"},
-            timeout=30,
+            timeout=config.PLACES_API_TIMEOUT,
         )
         response.raise_for_status()
         return response.json()

@@ -1,5 +1,7 @@
 """Pure scoring function for leads. No DB access, no side effects."""
 
+import config
+
 
 def score_lead(latest_audit: dict, business: dict) -> int:
     """Return a 0–100 score built from a single audit dict.
@@ -24,11 +26,11 @@ def score_lead(latest_audit: dict, business: dict) -> int:
     review_count = latest_audit.get("review_count", 0)
     if review_count == 0:
         score += 10
-    elif 1 <= review_count <= 20:
+    elif 1 <= review_count <= config.REVIEW_COUNT_BAND:
         score += 15
 
     google_rating = business.get("google_rating")
-    if google_rating is not None and google_rating >= 4.0:
+    if google_rating is not None and google_rating >= config.RATING_THRESHOLD:
         score += 15
 
     return min(score, 100)

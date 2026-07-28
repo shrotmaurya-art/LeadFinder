@@ -48,9 +48,9 @@ def generate(system_prompt: str, user_prompt: str, max_tokens: int = 250) -> str
     Raises
     ------
     OllamaUnavailableError
-        If the model cannot be reached after 2 attempts.
+        If the model cannot be reached after configured retries.
     """
-    client = ollama.Client(timeout=15)
+    client = ollama.Client(timeout=config.OLLAMA_TIMEOUT)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -58,7 +58,7 @@ def generate(system_prompt: str, user_prompt: str, max_tokens: int = 250) -> str
     options = {"num_predict": max_tokens}
 
     last_exc: Exception | None = None
-    for attempt in range(1, 3):
+    for attempt in range(1, config.OLLAMA_RETRIES + 1):
         try:
             response = client.chat(
                 model=config.OLLAMA_MODEL,
@@ -71,7 +71,7 @@ def generate(system_prompt: str, user_prompt: str, max_tokens: int = 250) -> str
                 httpx.ConnectError, httpx.TimeoutException,
                 ConnectionError) as exc:
             last_exc = exc
-            log.warning("Ollama attempt %d/2 failed: %s", attempt, exc)
+            log.warning("Ollama attempt %d/%d failed: %s", attempt, config.OLLAMA_RETRIES, exc)
 
     raise OllamaUnavailableError(
         "Ollama appears to be unreachable — run ollama list to confirm "

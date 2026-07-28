@@ -1,5 +1,7 @@
 """Pure recommendation engine for leads. No DB access, no side effects."""
 
+import config
+
 
 def recommend_services(latest_audit: dict) -> list[str]:
     """Return up to 3 prioritised service recommendations, or [] if none needed.
@@ -18,7 +20,7 @@ def recommend_services(latest_audit: dict) -> list[str]:
         result.append("Business Email Setup")
 
     review_count = latest_audit.get("review_count", 0)
-    if review_count < 20 or not latest_audit.get("has_instagram"):
+    if review_count < config.REVIEW_COUNT_BAND or not latest_audit.get("has_instagram"):
         result.append("Google Business / Instagram Optimization")
 
     return result[:3]
